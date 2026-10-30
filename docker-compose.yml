@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: javaneh-db
+    environment:
+      POSTGRES_USER: javaneh
+      POSTGRES_PASSWORD: javaneh
+      POSTGRES_DB: javaneh
+    ports:
+      - "5434:5432"
+    volumes:
+      - javaneh_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U javaneh -d javaneh"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: javaneh-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    volumes:
+      - javaneh_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: javaneh-app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://javaneh:javaneh@db:5432/javaneh?schema=public
+      REDIS_URL: redis://redis:6379
+      AUTH_SECRET: change-me-to-a-long-random-string-in-production
+      SKIP_IF_SEEDED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  javaneh_pgdata:
+  javaneh_redisdata:

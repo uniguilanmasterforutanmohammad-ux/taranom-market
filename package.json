@@ -1,0 +1,38 @@
+{
+  "name": "javaneh-bazaar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "بازارچهٔ ماژولار کودکان و نوجوانان — جوانه‌بازار",
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "node prisma/seed.mjs",
+    "db:seed:force": "ALLOW_WIPE=true node prisma/seed.mjs",
+    "db:backup": "bash scripts/db-backup.sh",
+    "db:studio": "prisma studio",
+    "setup": "prisma db push && node prisma/seed.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/vazirmatn": "5.3.0",
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "3.0.3",
+    "jose": "6.2.14",
+    "lucide-react": "1.65.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "redis": "6.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "prisma": "6.19.3",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}

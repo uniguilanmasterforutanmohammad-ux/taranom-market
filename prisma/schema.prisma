@@ -1,0 +1,312 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CHILD
+  PARENT
+  ADMIN
+}
+
+enum ProductType {
+  PHYSICAL
+  SERVICE
+  DIGITAL
+}
+
+enum ProductStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PlanTier {
+  FREE
+  STARTER
+  PRO
+}
+
+enum ConsentStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REVOKED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PREPARING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+}
+
+enum MessageChannel {
+  IN_APP
+  CALLBACK
+  EMAIL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  phone        String?
+  passwordHash String
+  role         Role      @default(CHILD)
+  birthDate    DateTime?
+  bio          String?
+  avatarColor  String    @default("#16a34a")
+  plan         PlanTier  @default(FREE)
+  parentId     String?
+  parent       User?     @relation("ParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children     User[]    @relation("ParentChildren")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  consent         Consent?
+  products        Product[]
+  modulePrefs     UserModulePreference[]
+  cartItems       CartItem[]
+  orders          Order[]            @relation("BuyerOrders")
+  sales           OrderItem[]
+  reviews         Review[]
+  notifications   Notification[]
+  subscriptions   Subscription[]
+  auditLogs       AuditLog[]
+  sentMessages    Message[]          @relation("SentMessages")
+  receivedMessages Message[]         @relation("ReceivedMessages")
+  approvalRequests ApprovalRequest[] @relation("ChildApprovalRequests")
+  approvalReviews  ApprovalRequest[] @relation("GuardianApprovalRequests")
+}
+
+/** درخواست کودک از والدین برای روشن‌کردن یک ماژول نیازمند تأیید (مثل پاسخ به پیام). */
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  childId     String
+  child       User           @relation("ChildApprovalRequests", fields: [childId], references: [id], onDelete: Cascade)
+  guardianId  String?
+  guardian    User?          @relation("GuardianApprovalRequests", fields: [guardianId], references: [id], onDelete: SetNull)
+  moduleKey   String
+  note        String?
+  status      ApprovalStatus @default(PENDING)
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  @@index([childId, moduleKey])
+  @@index([status, createdAt])
+}
+
+model Consent {
+  id          String        @id @default(cuid())
+  childId     String        @unique
+  child       User          @relation(fields: [childId], references: [id], onDelete: Cascade)
+  parentName  String
+  parentEmail String
+  parentPhone String?
+  method      String        @default("email")
+  status      ConsentStatus @default(PENDING)
+  approvedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime      @default(now())
+}
+
+model Category {
+  id       String    @id @default(cuid())
+  slug     String    @unique
+  title    String
+  emoji    String
+  tint     String
+  sort     Int       @default(0)
+  products Product[]
+}
+
+model Product {
+  id              String        @id @default(cuid())
+  title           String
+  description     String
+  type            ProductType
+  status          ProductStatus @default(PENDING)
+  price           Int           @default(0)
+  images          String[]      @default([])
+  tags            String[]      @default([])
+  stock           Int?
+  featured        Boolean       @default(false)
+  views           Int           @default(0)
+  rejectionReason String?
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id])
+  sellerId        String
+  seller          User          @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  reviews    Review[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  messages   Message[]
+
+  @@index([status, createdAt])
+  @@index([categoryId])
+}
+
+model Message {
+  id           String         @id @default(cuid())
+  productId    String?
+  product      Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  senderId     String
+  sender       User           @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId  String
+  recipient    User           @relation("ReceivedMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+  replyToId    String?
+  replyTo      Message?       @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      Message[]      @relation("MessageReplies")
+  body         String
+  channel      MessageChannel @default(IN_APP)
+  contactEmail String?
+  contactPhone String?
+  viaGuardian  Boolean        @default(false)
+  parentCopies String[]       @default([])
+  read         Boolean        @default(false)
+  createdAt    DateTime       @default(now())
+
+  @@index([recipientId, createdAt])
+  @@index([senderId, createdAt])
+  @@index([replyToId])
+}
+
+model ModuleSetting {
+  key       String   @id
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model UserModulePreference {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleKey String
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, moduleKey])
+  @@index([userId])
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int     @default(1)
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  code          String      @unique
+  buyerId       String
+  buyer         User        @relation("BuyerOrders", fields: [buyerId], references: [id])
+  total         Int
+  fee           Int         @default(0)
+  sellerEarning Int         @default(0)
+  status        OrderStatus @default(PENDING_PAYMENT)
+  address       String?
+  note          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  items         OrderItem[]
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  sellerId  String
+  seller    User    @relation(fields: [sellerId], references: [id])
+  title     String
+  quantity  Int     @default(1)
+  unitPrice Int
+
+  @@index([sellerId])
+}
+
+model Review {
+  id        String       @id @default(cuid())
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String
+  status    ReviewStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+
+  @@unique([productId, authorId])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  href      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  userId    String
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan      PlanTier
+  status    SubscriptionStatus @default(ACTIVE)
+  price     Int
+  startedAt DateTime           @default(now())
+  renewsAt  DateTime
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
