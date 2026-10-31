@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { logAudit, notify } from "@/lib/audit";
+import { phonesMatch } from "@/lib/phone";
 
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
@@ -17,7 +18,8 @@ export async function PATCH(request: Request) {
   const ownsChild =
     user.role === "ADMIN" ||
     consent.child.parentId === user.id ||
-    consent.parentEmail.toLowerCase() === user.email.toLowerCase();
+    consent.parentEmail.toLowerCase() === user.email.toLowerCase() ||
+    phonesMatch(consent.parentPhone, user.phone);
   if (!ownsChild) return jsonError("این درخواست مربوط به شما نیست.", 403);
 
   if (body.action === "approve") {

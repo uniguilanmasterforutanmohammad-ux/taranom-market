@@ -30,7 +30,8 @@ export default async function RegisterPage() {
         </div>
         <div className="kid-card space-y-2 p-4">
           {[
-            { icon: <HeartHandshake size={15} />, text: "برای زیر ۱۳ سال، رضایت والدین با ایمیل" },
+            { icon: <HeartHandshake size={15} />, text: "برای زیر ۱۳ سال، تأیید والدین با موبایل (ایمیل اختیاری)" },
+            { icon: <Sparkles size={15} />, text: "محصول کودک زیر ۱۳ سال اول تأیید والدین، بعد بازبینی ادمین" },
             { icon: <ShieldCheck size={15} />, text: "بازبینی انسانی هر محصول پیش از انتشار" },
             { icon: <CheckCircle2 size={15} />, text: "کنترل کامل والدین روی ماژول‌های فرزند" },
             { icon: <Sparkles size={15} />, text: "پلن رایگان برای شروع؛ ارتقا هر زمان" },

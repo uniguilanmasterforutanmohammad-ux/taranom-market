@@ -1,5 +1,10 @@
 import { db } from "./db";
-import { MODULE_MAP, type ModuleDefinition } from "./modules";
+import { MODULE_MAP, PLANS, type ModuleDefinition, type PlanTier } from "./modules";
+import { phonesMatch } from "./phone";
+
+/** کلید ویژهٔ درخواست «ارتقای پلن»؛ ماژول نیست ولی از همان چرخهٔ تأیید والدین رد می‌شود. */
+export const PLAN_UPGRADE_KEY = "planUpgrade";
+export const PLAN_UPGRADE_TITLE = "ارتقای پلن";
 
 export type ApprovalStatusValue = "PENDING" | "APPROVED" | "DENIED";
 
@@ -17,15 +22,21 @@ export type ApprovalRequestView = {
   respondedAt: Date | null;
 };
 
-/** آیا این حساب والد، ولیِ این کودک است؟ (رابطهٔ parentId یا ایمیل ثبت‌شده در رکورد رضایت) */
-export async function isGuardianOf(parent: { id: string; email: string }, childId: string): Promise<boolean> {
+/** آیا این حساب والد، ولیِ این کودک است؟ (رابطهٔ parentId یا ایمیل/موبایل ثبت‌شده در رکورد رضایت) */
+export async function isGuardianOf(
+  parent: { id: string; email: string; phone?: string | null },
+  childId: string,
+): Promise<boolean> {
   const child = await db.user.findUnique({ where: { id: childId }, select: { parentId: true, role: true } });
   if (!child || child.role !== "CHILD") return false;
   if (child.parentId === parent.id) return true;
-  return Boolean(
-    await db.consent.findFirst({
-      where: { childId, parentEmail: parent.email.toLowerCase(), status: { not: "REVOKED" } },
-    }),
+  const consents = await db.consent.findMany({
+    where: { childId, status: { not: "REVOKED" } },
+    select: { parentEmail: true, parentPhone: true },
+  });
+  const email = parent.email.toLowerCase();
+  return consents.some(
+    (consent) => consent.parentEmail.toLowerCase() === email || phonesMatch(consent.parentPhone, parent.phone),
   );
 }
 
@@ -48,12 +59,29 @@ export async function guardianAccountsOf(
     });
     if (account) accounts.push(account);
   }
+  // اگر ایمیل ثبت نشده باشد، حساب والد از روی موبایل پیدا می‌شود (بند ۳ درخواست‌ها).
+  if (consent?.parentPhone) {
+    const candidates = await db.user.findMany({
+      where: { role: { in: ["PARENT", "ADMIN"] }, phone: { not: null } },
+      select: { id: true, name: true, email: true, phone: true },
+      take: 50,
+    });
+    for (const account of candidates) {
+      if (!accounts.some((person) => person.id === account.id) && phonesMatch(account.phone, consent.parentPhone)) {
+        accounts.push(account);
+      }
+    }
+  }
   return accounts;
 }
 
 /** آیا این ماژول مخصوص تأیید والدین است؟ */
 export function isParentApprovalModule(moduleKey: string): boolean {
-  return Boolean(MODULE_MAP[moduleKey]?.parentApproval);
+  return moduleKey === PLAN_UPGRADE_KEY || Boolean(MODULE_MAP[moduleKey]?.parentApproval);
+}
+
+export function approvalTitle(moduleKey: string): string {
+  return MODULE_MAP[moduleKey]?.title ?? (moduleKey === PLAN_UPGRADE_KEY ? PLAN_UPGRADE_TITLE : moduleKey);
 }
 
 function decorate(request: {
@@ -66,13 +94,14 @@ function decorate(request: {
   respondedAt: Date | null;
   child: { name: string; avatarColor: string };
 }): ApprovalRequestView {
+  const upgradePlan = request.moduleKey === PLAN_UPGRADE_KEY ? PLANS[request.note as PlanTier] : undefined;
   return {
     id: request.id,
     childId: request.childId,
     childName: request.child.name,
     childColor: request.child.avatarColor,
     moduleKey: request.moduleKey,
-    moduleTitle: MODULE_MAP[request.moduleKey]?.title ?? request.moduleKey,
+    moduleTitle: upgradePlan ? `ارتقای پلن به «${upgradePlan.title}»` : approvalTitle(request.moduleKey),
     module: MODULE_MAP[request.moduleKey],
     note: request.note,
     status: request.status,

@@ -119,6 +119,16 @@ export async function assertCanCreateProduct(user: {
   return quota;
 }
 
+/**
+ * فقط بررسی سقف پلن، بدون قید رضایت.
+ * محصول کودک زیر ۱۳ سال ابتدا در صف تأیید والدین می‌نشیند (نه انتشار)، پس رضایت مانع ثبت نمی‌شود.
+ */
+export async function assertProductQuota(user: { id: string; plan: PlanTier }) {
+  const quota = await getQuota(user);
+  if (quota.remaining <= 0) throw new QuotaError(quota.limit);
+  return quota;
+}
+
 export function consentBlocked(user: {
   birthDate?: Date | null;
   consent?: { status: string } | null;

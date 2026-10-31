@@ -4,6 +4,8 @@ import { clientIp, jsonError, readJson } from "@/lib/api";
 import { rateLimit } from "@/lib/rate-limit";
 import { ageFrom } from "@/lib/age";
 import { logAudit, notify } from "@/lib/audit";
+import { findGuardianAccountBy, isManagedEmail } from "@/lib/children";
+import { canonicalPhone, normalizePhone } from "@/lib/phone";
 
 type Body = {
   name?: string;
@@ -14,6 +16,8 @@ type Body = {
   parentEmail?: string;
   parentName?: string;
   parentPhone?: string;
+  /** موبایل خودِ حساب والدین — برای وصل‌شدن خودکار به فرزندان. */
+  phone?: string;
 };
 
 export async function POST(request: Request) {
@@ -30,6 +34,7 @@ export async function POST(request: Request) {
 
   if (name.length < 2) return jsonError("نام را کامل وارد کن.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return jsonError("ایمیل معتبر نیست.");
+  if (isManagedEmail(email)) return jsonError("این ایمیل قابل استفاده نیست.");
   if (password.length < 8) return jsonError("رمز عبور باید حداقل ۸ کاراکتر باشد.");
 
   const existing = await db.user.findUnique({ where: { email } });
@@ -39,6 +44,11 @@ export async function POST(request: Request) {
   let parentEmail = "";
   let parentName = "";
   let parentPhone = "";
+  const ownPhone = canonicalPhone(body.phone);
+
+  if (body.phone && !ownPhone) {
+    return jsonError("شمارهٔ موبایل معتبر نیست. مثال: ۰۹۱۲۳۴۵۶۷۸۹");
+  }
 
   if (role === "CHILD") {
     if (!body.birthDate) return jsonError("تاریخ تولد برای ساخت حساب کودک لازم است.");
@@ -46,13 +56,16 @@ export async function POST(request: Request) {
     if (Number.isNaN(birthDate.getTime())) return jsonError("تاریخ تولد معتبر نیست.");
     if (ageFrom(birthDate) > 100) return jsonError("تاریخ تولد معتبر نیست.");
     if (ageFrom(birthDate) < 13) {
-      parentEmail = (body.parentEmail ?? "").trim().toLowerCase();
       parentName = (body.parentName ?? "").trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
-        return jsonError("برای کاربران زیر ۱۳ سال، ایمیل والدین لازم است.");
+      parentPhone = canonicalPhone(body.parentPhone);
+      parentEmail = (body.parentEmail ?? "").trim().toLowerCase();
+      if (parentName.length < 2) return jsonError("نام والد یا سرپرست را وارد کن.");
+      if (!parentPhone) {
+        return jsonError("برای کاربران زیر ۱۳ سال، شمارهٔ موبایل والدین الزامی است. مثال: ۰۹۱۲۳۴۵۶۷۸۹");
       }
-      if (parentName.length < 2) return jsonError("نام والدین را وارد کنید.");
-      parentPhone = (body.parentPhone ?? "").trim().slice(0, 20);
+      if (parentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
+        return jsonError("ایمیل والدین معتبر نیست (این فیلد اختیاری است).");
+      }
     }
   }
 
@@ -65,13 +78,16 @@ export async function POST(request: Request) {
       role,
       birthDate,
       plan: "FREE",
+      phone: role === "PARENT" ? ownPhone || null : null,
       avatarColor: role === "PARENT" ? "#c2410c" : "#16a34a",
     },
   });
 
   if (role === "CHILD" && birthDate) {
     const needsConsent = ageFrom(birthDate) < 13;
-    const parent = needsConsent ? await db.user.findUnique({ where: { email: parentEmail } }) : null;
+    const parent = needsConsent
+      ? await findGuardianAccountBy({ email: parentEmail, phone: parentPhone })
+      : null;
     await db.consent.create({
       data: {
         childId: user.id,
@@ -97,7 +113,16 @@ export async function POST(request: Request) {
   }
 
   if (role === "PARENT") {
-    const pending = await db.consent.findMany({ where: { parentEmail: email, status: "PENDING" } });
+    const phoneCandidates = [...new Set([body.phone ?? "", normalizePhone(body.phone), ownPhone])].filter(Boolean);
+    const pending = await db.consent.findMany({
+      where: {
+        status: "PENDING",
+        OR: [
+          { parentEmail: email },
+          ...(phoneCandidates.length ? [{ parentPhone: { in: phoneCandidates } }] : []),
+        ],
+      },
+    });
     for (const consent of pending) {
       await db.user.update({ where: { id: consent.childId }, data: { parentId: user.id } });
       await db.consent.update({ where: { id: consent.id }, data: { parentName: name, status: "APPROVED", approvedAt: new Date() } });

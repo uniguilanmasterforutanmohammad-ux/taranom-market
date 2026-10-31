@@ -50,7 +50,11 @@ export default async function AdminUsersPage() {
                       <Avatar name={user.name} color={user.avatarColor} size={28} />
                       <div className="min-w-0">
                         <p className="truncate font-black text-forest">{user.name}</p>
-                        <p dir="ltr" className="truncate text-right text-[10px] text-slate-400">{user.email}</p>
+                        {user.managedByGuardian ? (
+                          <p className="truncate text-[10px] text-slate-400">بدون ایمیل · پروفایل تحت مدیریت والدین</p>
+                        ) : (
+                          <p dir="ltr" className="truncate text-right text-[10px] text-slate-400">{user.email}</p>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -58,6 +62,7 @@ export default async function AdminUsersPage() {
                     <Badge tone={user.role === "ADMIN" ? "clay" : user.role === "PARENT" ? "sky" : "mint"}>
                       {user.role === "ADMIN" ? "ادمین" : user.role === "PARENT" ? "والدین" : "کودک"}
                     </Badge>
+                    {user.managedByGuardian ? <Badge tone="sky" className="mt-1">تحت مدیریت والدین</Badge> : null}
                   </td>
                   <td className="px-3 py-2.5 text-slate-500">{user.role === "CHILD" ? ageLabel(user.birthDate) : "—"}</td>
                   <td className="px-3 py-2.5 text-slate-600">{PLANS[user.plan].emoji} {PLANS[user.plan].title}</td>

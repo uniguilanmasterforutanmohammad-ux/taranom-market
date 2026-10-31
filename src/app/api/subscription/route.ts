@@ -1,9 +1,9 @@
-import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { assertModule } from "@/lib/module-service";
 import { PLANS, type PlanTier } from "@/lib/modules";
-import { logAudit, notify } from "@/lib/audit";
+import { requireChildAccess } from "@/lib/children";
+import { activateSubscription } from "@/lib/subscription";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -15,27 +15,19 @@ export async function POST(request: Request) {
     return jsonError(error instanceof Error ? error.message : "ماژول اشتراک غیرفعال است.", 403);
   }
 
-  const body = await readJson<{ plan?: string }>(request);
+  const body = await readJson<{ plan?: string; childId?: string }>(request);
   const plan = body?.plan as PlanTier | undefined;
   if (!plan || !PLANS[plan]) return jsonError("پلن نامعتبر است.");
 
-  const renewsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  await db.$transaction([
-    db.user.update({ where: { id: user.id }, data: { plan } }),
-    db.subscription.create({
-      data: { userId: user.id, plan, price: PLANS[plan].price, renewsAt, status: "ACTIVE" },
-    }),
-  ]);
+  // والد/سرپرست می‌تواند پلن فرزندش را هم ارتقا بدهد (پرداخت نمایشی با حساب والد).
+  let targetId = user.id;
+  const childId = (body?.childId ?? "").trim();
+  if (childId && childId !== user.id) {
+    const child = await requireChildAccess(user, childId);
+    if (!child) return jsonError("فقط والد یا سرپرست این کودک می‌تواند پلن او را ارتقا بدهد.", 403);
+    targetId = child.id;
+  }
 
-  await Promise.all([
-    logAudit({ actorId: user.id, action: "subscription.change", entity: "Subscription", entityId: user.id, detail: plan }),
-    notify({
-      userId: user.id,
-      title: `پلن ${PLANS[plan].title} فعال شد 🎉`,
-      body: `سقف آپلود شما به ${PLANS[plan].productLimit} محصول افزایش یافت.`,
-      href: "/dashboard",
-    }),
-  ]);
-
-  return Response.json({ ok: true, plan, renewsAt });
+  const result = await activateSubscription(targetId, plan, { actorId: user.id });
+  return Response.json({ ok: true, plan: result.plan, renewsAt: result.renewsAt, userId: targetId });
 }

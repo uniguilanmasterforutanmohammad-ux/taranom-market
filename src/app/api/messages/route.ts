@@ -61,7 +61,9 @@ export async function POST(request: Request) {
     ? await guardiansOf(seller.id)
     : [];
 
-  const parentCopies = [...new Set([...senderGuardians, ...sellerGuardians].map((person) => person.email))];
+  const parentCopies = [
+    ...new Set([...senderGuardians, ...sellerGuardians].map((person) => person.email).filter(Boolean)),
+  ];
 
   const message = await db.message.create({
     data: {

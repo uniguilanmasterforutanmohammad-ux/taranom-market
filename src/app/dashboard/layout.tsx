@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
-import { getEnabledModuleKeys } from "@/lib/module-service";
+import { getEnabledModuleKeys, getQuota } from "@/lib/module-service";
 import { db } from "@/lib/db";
 import { DashboardNav, type NavItem } from "@/components/dashboard-nav";
 import { Avatar, Badge } from "@/components/ui";
@@ -10,15 +10,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const user = await requireUser();
   if (user.role === "PARENT") redirect("/parent");
 
-  const [enabled, pendingCount] = await Promise.all([
+  const [enabled, pendingCount, quota] = await Promise.all([
     getEnabledModuleKeys(user),
     db.product.count({ where: { sellerId: user.id, status: "PENDING" } }),
+    getQuota(user),
   ]);
 
   const items: NavItem[] = [{ href: "/dashboard", label: "نمای کلی", icon: "home" }];
   if (enabled.has("productUpload")) {
     items.push({ href: "/dashboard/products", label: "محصولات من", icon: "package", badge: pendingCount ? String(pendingCount) : undefined });
-    items.push({ href: "/dashboard/products/new", label: "ثبت محصول", icon: "plus" });
+    // وقتی سقف پلن پر است، ورودی «ثبت محصول» از منو برداشته می‌شود.
+    if (quota.remaining > 0) items.push({ href: "/dashboard/products/new", label: "ثبت محصول", icon: "plus" });
   }
   if (enabled.has("orders")) items.push({ href: "/dashboard/orders", label: "سفارش‌ها", icon: "bag" });
   if (enabled.has("sellerContact")) items.push({ href: "/dashboard/messages", label: "پیام‌ها", icon: "chat" });

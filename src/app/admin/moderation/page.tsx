@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CheckCircle2, Clock, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Clock, Pencil, ShieldAlert, UserCheck } from "lucide-react";
 import { db } from "@/lib/db";
 import { ModerationActions } from "@/components/moderation-actions";
 import { Badge, EmptyState } from "@/components/ui";
@@ -9,9 +9,10 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "صف بازبینی" };
 
 export default async function ModerationPage() {
-  const [pending, recent] = await Promise.all([
+  const [pending, recent, awaitingParent] = await Promise.all([
     db.product.findMany({ where: { status: "PENDING" }, include: { seller: true, category: true }, orderBy: { createdAt: "asc" } }),
     db.product.findMany({ where: { status: { in: ["APPROVED", "REJECTED"] } }, include: { seller: true }, orderBy: { updatedAt: "desc" }, take: 6 }),
+    db.product.count({ where: { status: "AWAITING_PARENT" } }),
   ]);
 
   return (
@@ -19,6 +20,11 @@ export default async function ModerationPage() {
       <div>
         <h1 className="flex items-center gap-1.5 text-xl font-black text-forest"><ShieldAlert size={20} /> صف بازبینی محتوا</h1>
         <p className="text-[11px] text-slate-500">ایمنی، تناسب سنی و کیفیت را بررسی کن؛ هیچ محصولی بدون تأیید منتشر نمی‌شود.</p>
+        {awaitingParent > 0 ? (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-sky-50 px-3 py-1.5 text-[11px] font-bold text-sky-900">
+            <UserCheck size={13} /> {awaitingParent} محصول در انتظار تأیید والدین است و بعد از تأیید آن‌ها به این صف می‌آید.
+          </p>
+        ) : null}
       </div>
 
       {pending.length === 0 ? (
@@ -34,13 +40,21 @@ export default async function ModerationPage() {
                     <p className="text-sm font-black text-forest">{product.title}</p>
                     <Badge tone="sun"><Clock size={10} /> {PRODUCT_STATUS_LABEL[product.status]}</Badge>
                     <Badge tone="sky">{PRODUCT_TYPE_LABEL[product.type]}</Badge>
+                    {product.parentApprovedAt ? (
+                      <Badge tone="mint"><UserCheck size={10} /> تأیید والدین</Badge>
+                    ) : null}
                   </div>
                   <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-slate-600">{product.description}</p>
                   <p className="mt-1 text-[10px] text-slate-400">
                     فروشنده: {product.seller.name} · {product.category.title} · {toman(product.price)} · {faDateLabel(product.createdAt)}
                   </p>
                 </div>
-                <ModerationActions productId={product.id} />
+                <div className="flex flex-col items-end gap-2">
+                  <Link href={`/admin/moderation/${product.id}`} className="kid-btn kid-btn-ghost !px-3 !py-1.5 text-[11px]">
+                    <Pencil size={12} /> ویرایش
+                  </Link>
+                  <ModerationActions productId={product.id} />
+                </div>
               </div>
             </div>
           ))}

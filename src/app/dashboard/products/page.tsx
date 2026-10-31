@@ -3,17 +3,28 @@ import { Eye, Pencil, Plus, ShieldAlert } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getQuota } from "@/lib/module-service";
-import { PRODUCT_STATUS_LABEL, PRODUCT_TYPE_LABEL, faDateLabel, faNum, toman } from "@/lib/format";
+import { guardianAccountsOf, PLAN_UPGRADE_KEY } from "@/lib/approval";
+import type { PlanTier } from "@/lib/modules";
+import { PRODUCT_STATUS_LABEL, PRODUCT_TYPE_LABEL, faDateLabel, faNum, productStatusTone, toman } from "@/lib/format";
+import { QuotaLockedCard } from "@/components/quota-locked-card";
+import { PlanUpgradeRequest } from "@/components/plan-upgrade-request";
 import { Badge, EmptyState, ProgressBar } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function MyProductsPage() {
   const user = await requireUser();
-  const [products, quota] = await Promise.all([
+  const [products, quota, guardians, upgradeRequest] = await Promise.all([
     db.product.findMany({ where: { sellerId: user.id }, orderBy: { createdAt: "desc" }, include: { category: true } }),
     getQuota(user),
+    guardianAccountsOf(user.id),
+    db.approvalRequest.findFirst({
+      where: { childId: user.id, moduleKey: PLAN_UPGRADE_KEY },
+      orderBy: { createdAt: "desc" },
+      select: { status: true, note: true },
+    }),
   ]);
+  const full = quota.remaining === 0;
 
   return (
     <div className="space-y-4">
@@ -22,9 +33,11 @@ export default async function MyProductsPage() {
           <h1 className="text-xl font-black text-forest">محصولات من</h1>
           <p className="text-[11px] text-slate-500">{faNum(products.length)} محصول ثبت‌شده · {faNum(quota.remaining)} جای خالی</p>
         </div>
-        <Link href="/dashboard/products/new" className="kid-btn kid-btn-primary !py-2 text-xs">
-          <Plus size={15} /> محصول جدید
-        </Link>
+        {full ? null : (
+          <Link href="/dashboard/products/new" className="kid-btn kid-btn-primary !py-2 text-xs">
+            <Plus size={15} /> محصول جدید
+          </Link>
+        )}
       </div>
 
       <div className="kid-card p-4">
@@ -35,12 +48,31 @@ export default async function MyProductsPage() {
         <ProgressBar value={quota.used} max={quota.limit} tone={quota.remaining === 0 ? "bg-pink-500" : "bg-emerald-500"} />
       </div>
 
+      {full ? (
+        <QuotaLockedCard plan={user.plan}>
+          {upgradeRequest?.status === "PENDING" ? (
+            <p className="rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/80 px-3 py-2 text-[11px] font-bold text-amber-900">
+              درخواست ارتقای پلنت برای والدین فرستاده شده و منتظر پاسخ آن‌هاست.
+            </p>
+          ) : null}
+          <PlanUpgradeRequest
+            currentPlan={user.plan}
+            hasGuardian={guardians.length > 0}
+            requested={(upgradeRequest?.note as PlanTier) ?? null}
+          />
+        </QuotaLockedCard>
+      ) : null}
+
       {products.length === 0 ? (
         <EmptyState
           emoji="🧺"
           title="سبدت خالی است"
           body="اولین ساخته‌ات را ثبت کن؛ چند دقیقه بیشتر طول نمی‌کشد."
-          action={<Link href="/dashboard/products/new" className="kid-btn kid-btn-primary text-xs"><Plus size={14} /> ثبت اولین محصول</Link>}
+          action={
+            full ? undefined : (
+              <Link href="/dashboard/products/new" className="kid-btn kid-btn-primary text-xs"><Plus size={14} /> ثبت اولین محصول</Link>
+            )
+          }
         />
       ) : (
         <div className="space-y-2.5">
@@ -52,7 +84,7 @@ export default async function MyProductsPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <p className="truncate text-sm font-black text-forest">{product.title}</p>
-                  <Badge tone={product.status === "APPROVED" ? "mint" : product.status === "PENDING" ? "sun" : product.status === "REJECTED" ? "berry" : "slate"}>
+                  <Badge tone={productStatusTone(product.status)}>
                     {PRODUCT_STATUS_LABEL[product.status]}
                   </Badge>
                   <Badge tone="sky">{PRODUCT_TYPE_LABEL[product.type]}</Badge>

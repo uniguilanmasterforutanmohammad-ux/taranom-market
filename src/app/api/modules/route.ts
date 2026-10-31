@@ -4,6 +4,7 @@ import { jsonError, readJson } from "@/lib/api";
 import { getGlobalSettings, getModuleStates, setGlobalModule, setUserModule } from "@/lib/module-service";
 import { MODULE_MAP } from "@/lib/modules";
 import { logAudit } from "@/lib/audit";
+import { isGuardianOf } from "@/lib/approval";
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -48,9 +49,7 @@ export async function PATCH(request: Request) {
       if (!target) return jsonError("کاربر پیدا نشد.", 404);
       const isGuardian =
         user.role === "ADMIN" ||
-        (user.role === "PARENT" &&
-          (target.parentId === user.id ||
-            Boolean(await db.consent.findFirst({ where: { childId: target.id, parentEmail: user.email } }))));
+        (user.role === "PARENT" && (target.parentId === user.id || (await isGuardianOf(user, target.id))));
       if (!isGuardian) return jsonError("فقط والدین یا مدیر می‌توانند ماژول این کاربر را تغییر دهند.", 403);
       targetId = target.id;
     }

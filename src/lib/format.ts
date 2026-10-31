@@ -35,10 +35,19 @@ export const PRODUCT_TYPE_LABEL: Record<string, string> = {
 
 export const PRODUCT_STATUS_LABEL: Record<string, string> = {
   DRAFT: "پیش‌نویس",
+  AWAITING_PARENT: "در انتظار تأیید والدین",
   PENDING: "در انتظار تأیید",
   APPROVED: "تأییدشده",
   REJECTED: "ردشده",
 };
+
+export function productStatusTone(status: string): "mint" | "sun" | "berry" | "slate" | "sky" {
+  if (status === "APPROVED") return "mint";
+  if (status === "PENDING") return "sun";
+  if (status === "AWAITING_PARENT") return "sky";
+  if (status === "REJECTED") return "berry";
+  return "slate";
+}
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {
   PENDING_PAYMENT: "در انتظار پرداخت",

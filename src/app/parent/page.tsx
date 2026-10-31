@@ -1,20 +1,23 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Baby, Clock3, MessageCircle, ShieldCheck, ShieldQuestion, Trash2, UserRound } from "lucide-react";
+import { Baby, Clock3, MessageCircle, PackagePlus, Plus, ShieldCheck, ShieldQuestion, Trash2, UserRound } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getGlobalSettings, getModuleStates } from "@/lib/module-service";
+import { getGlobalSettings, getModuleStates, getQuota } from "@/lib/module-service";
 import { MODULE_GROUPS } from "@/lib/modules";
 import { ageLabel } from "@/lib/age";
-import { faDateLabel, faNum, toman } from "@/lib/format";
+import { childrenWhere } from "@/lib/children";
 import { ModuleIcon } from "@/components/module-icon";
 import { ModuleToggle } from "@/components/module-toggle";
 import { ConsentActions } from "@/components/consent-actions";
+import { AddChildForm } from "@/components/add-child-form";
 import { MessageReply } from "@/components/message-reply";
 import { ApprovalActions } from "@/components/approval-actions";
-import { listApprovalRequests } from "@/lib/approval";
+import { PLAN_UPGRADE_KEY, listApprovalRequests } from "@/lib/approval";
 import { LogoutButton } from "@/components/logout-button";
 import { Avatar, Badge, EmptyState, SectionHeading } from "@/components/ui";
+import { GuardianProductReview } from "@/components/guardian-product-review";
+import { PRODUCT_STATUS_LABEL, faDateLabel, faNum, productStatusTone, toman } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "پنل والدین" };
@@ -31,23 +34,19 @@ export default async function ParentPage() {
   if (user.role === "CHILD") redirect("/dashboard");
 
   const children = await db.user.findMany({
-    where: {
-      OR: [
-        { parentId: user.id },
-        user.role === "ADMIN" ? { role: "CHILD" } : { consent: { parentEmail: user.email } },
-      ],
-    },
+    where: childrenWhere(user),
     include: {
       consent: true,
-      products: { select: { id: true, title: true, status: true, price: true }, orderBy: { createdAt: "desc" }, take: 3 },
+      products: { select: { id: true, title: true, status: true, price: true }, orderBy: { createdAt: "desc" }, take: 6 },
       subscriptions: { where: { status: "ACTIVE" }, orderBy: { startedAt: "desc" }, take: 1 },
     },
     take: 8,
   });
 
-  const [global, childStates] = await Promise.all([
+  const [global, childStates, childQuotas] = await Promise.all([
     getGlobalSettings(),
     Promise.all(children.map((child) => getModuleStates(child))),
+    Promise.all(children.map((child) => getQuota(child))),
   ]);
   const pendingCount = children.filter((child) => child.consent?.status === "PENDING").length;
   const childIds = children.map((child) => child.id);
@@ -65,6 +64,15 @@ export default async function ParentPage() {
         },
         orderBy: { createdAt: "desc" },
         take: 8,
+      })
+    : [];
+
+  const awaitingParentProducts = childIds.length
+    ? await db.product.findMany({
+        where: { sellerId: { in: childIds }, status: "AWAITING_PARENT" },
+        include: { category: true, seller: { select: { name: true, avatarColor: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 12,
       })
     : [];
 
@@ -125,9 +133,11 @@ export default async function ParentPage() {
                     {request.note ? ` · یادداشت فرزند: ${request.note}` : ""}
                   </p>
                   <p className="mt-1.5 text-[10px] leading-5 text-slate-500">
-                    {request.module?.parentApproval
-                      ? "این قابلیت فقط با تأیید شما برای فرزندتان فعال می‌شود و هر گفت‌وگوی او هم برای شما ثبت می‌ماند."
-                      : "این کلید برای فرزند شما با تأیید شما روشن می‌شود."}
+                    {request.moduleKey === PLAN_UPGRADE_KEY
+                      ? "با تأیید شما پلن فرزندتان ارتقا می‌یابد (پرداخت نمایشی) و سقف ثبت محصولش بیشتر می‌شود."
+                      : request.module?.parentApproval
+                        ? "این قابلیت فقط با تأیید شما برای فرزندتان فعال می‌شود و هر گفت‌وگوی او هم برای شما ثبت می‌ماند."
+                        : "این کلید برای فرزند شما با تأیید شما روشن می‌شود."}
                   </p>
                 </div>
                 <ApprovalActions requestId={request.id} childName={request.childName} moduleTitle={request.moduleTitle} />
@@ -149,6 +159,41 @@ export default async function ParentPage() {
         </div>
       </section>
 
+      {awaitingParentProducts.length > 0 ? (
+        <section className="mt-5">
+          <SectionHeading
+            eyebrow="تأیید والدین روی محصول‌ها"
+            title="محصولات در انتظار تأیید شما"
+            body="ساختهٔ فرزندان زیر ۱۳ سال اول به دست شما می‌رسد. تا تأیید شما، محصول برای بازبینی ادمین فرستاده نمی‌شود و در ویترین دیده نمی‌شود."
+            action={
+              <span className="rounded-full bg-sky-100 px-3 py-1 text-[10px] font-black text-sky-800">
+                {faNum(awaitingParentProducts.length)} محصول
+              </span>
+            }
+          />
+          <div className="mt-3 space-y-2">
+            {awaitingParentProducts.map((product) => (
+              <article key={product.id} className="kid-card flex flex-wrap items-start gap-3 p-4">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl" style={{ backgroundColor: product.category.tint }}>
+                  {product.category.emoji}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="truncate text-sm font-black text-forest">{product.title}</p>
+                    <Badge tone={productStatusTone(product.status)}>{PRODUCT_STATUS_LABEL[product.status]}</Badge>
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-slate-400">
+                    {product.seller.name} · {toman(product.price)} · {faDateLabel(product.createdAt)} · {product.category.title}
+                  </p>
+                  <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-slate-600">{product.description}</p>
+                </div>
+                <GuardianProductReview productId={product.id} childName={product.seller.name} />
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="mt-6">
         <SectionHeading
           eyebrow="فرزندان"
@@ -157,13 +202,14 @@ export default async function ParentPage() {
         />
       </div>
 
+      {user.role === "PARENT" ? <AddChildForm /> : null}
+
       {children.length === 0 ? (
         <div className="mt-4">
           <EmptyState
             emoji="👨‍👩‍👧"
             title="هنوز فرزندی به حساب شما وصل نیست"
-            body="اگر فرزندتان با ایمیل شما ثبت‌نام کند، درخواست رضایت همین‌جا نمایش داده می‌شود."
-            action={<Link href="/register" className="kid-btn kid-btn-primary text-xs">ساخت حساب کودک</Link>}
+            body="اگر فرزندت خودش ثبت‌نام کند، درخواست رضایتش همین‌جا می‌آید. اگر هم نمی‌خواهی کودک به اینترنت دسترسی داشته باشد، از دکمهٔ بالا برایش پروفایل تحت مدیریت خودت بساز."
           />
         </div>
       ) : (
@@ -177,6 +223,8 @@ export default async function ParentPage() {
               return true;
             });
             const permissions = allStates.filter(({ module }) => module.parentApproval);
+            const managed = child.managedByGuardian;
+            const quotaFull = childQuotas[index]?.remaining === 0;
             return (
               <section key={child.id} className="kid-card overflow-hidden">
                 <div className="flex flex-wrap items-center gap-3 border-b-2 border-emerald-900/10 bg-emerald-50/50 p-4">
@@ -184,13 +232,15 @@ export default async function ParentPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <p className="text-sm font-black text-forest">{child.name}</p>
+                      {managed ? <Badge tone="clay"><UserRound size={10} /> تحت مدیریت والدین</Badge> : null}
                       <Badge tone={child.consent?.status === "APPROVED" ? "mint" : child.consent?.status === "PENDING" ? "sun" : child.consent?.status === "REVOKED" ? "berry" : "slate"}>
                         {CONSENT_LABEL[child.consent?.status ?? "NOT_REQUIRED"]}
                       </Badge>
                       <Badge tone="sky"><Baby size={10} /> {ageLabel(child.birthDate)}</Badge>
                     </div>
                     <p className="mt-1 text-[10px] text-slate-500">
-                      {child.email} · {child.products.length} محصول ثبت‌شده
+                      {managed ? "بدون حساب مستقل · کودک نیازی به ورود به سایت ندارد" : child.email}
+                      {" · "}{child.products.length} محصول ثبت‌شده
                       {child.subscriptions[0] ? ` · اشتراک فعال تا ${faDateLabel(child.subscriptions[0].renewsAt)}` : ""}
                     </p>
                   </div>
@@ -216,6 +266,22 @@ export default async function ParentPage() {
                       برای حذف کامل داده‌های فرزند، رضایت را لغو کنید؛ محصولات از ویترین برداشته می‌شوند و سایر داده‌ها طبق سیاست نگهداری پاک خواهند شد.
                     </p>
 
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {quotaFull ? (
+                        <Link href={`/parent/children/${child.id}`} className="kid-btn kid-btn-ghost !border-amber-300 !py-1.5 text-[11px] !text-amber-900">
+                          <PackagePlus size={13} /> سقف پلن پر است — ارتقای پلن
+                        </Link>
+                      ) : (
+                        <Link href={`/parent/children/${child.id}/products/new`} className="kid-btn kid-btn-primary !py-1.5 text-[11px]">
+                          <PackagePlus size={13} /> ثبت محصول برای این فرزند
+                        </Link>
+                      )}
+                      <Link href={`/parent/children/${child.id}`} className="kid-btn kid-btn-ghost !py-1.5 text-[11px]">
+                        <Plus size={13} /> مدیریت محصولات این فرزند
+                      </Link>
+                    </div>
+
+                    {!managed ? (
                     <div className="mt-3 rounded-2xl border-2 border-emerald-900/10 bg-emerald-50/40 p-3">
                       <p className="mb-1 flex items-center gap-1.5 text-[11px] font-black text-slate-600">
                         <MessageCircle size={13} /> اجازه‌های ارتباطی
@@ -239,9 +305,23 @@ export default async function ParentPage() {
                         ))}
                       </div>
                     </div>
+                    ) : null}
                   </div>
 
                   <div>
+                    {managed ? (
+                      <div className="rounded-2xl border-2 border-sky-200 bg-sky-50/60 p-3">
+                        <p className="flex items-center gap-1.5 text-[11px] font-black text-sky-900">
+                          <UserRound size={13} /> همهٔ کارها با حساب شما
+                        </p>
+                        <p className="mt-1.5 text-[10px] leading-6 text-sky-950/80">
+                          «{child.name}» حساب و رمز عبور ندارد و هرگز وارد بازارچه نمی‌شود. ثبت و ویرایش محصول، پاسخ به
+                          پیام‌ها و پیگیری فروش با حساب خودت انجام می‌شود و محصول‌ها با برچسب «ثبت‌شده توسط والدین» به نام
+                          فرزندت منتشر می‌شوند. کلیدهای ماژول اختصاصی کودک هم برای این پروفایل کاربرد ندارند.
+                        </p>
+                      </div>
+                    ) : (
+                    <>
                     <p className="mb-2 text-[11px] font-black text-slate-600">کلید ماژول‌های فرزند</p>
                     <div className="space-y-1.5">
                       {MODULE_GROUPS.map((group) => {
@@ -268,6 +348,8 @@ export default async function ParentPage() {
                         );
                       })}
                     </div>
+                    </>
+                    )}
                   </div>
                 </div>
               </section>

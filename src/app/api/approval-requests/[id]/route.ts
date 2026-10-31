@@ -2,9 +2,10 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { jsonError, readJson } from "@/lib/api";
 import { setUserModule } from "@/lib/module-service";
-import { MODULE_MAP } from "@/lib/modules";
+import { MODULE_MAP, PLANS, type PlanTier } from "@/lib/modules";
 import { logAudit, notify } from "@/lib/audit";
-import { isGuardianOf, isParentApprovalModule } from "@/lib/approval";
+import { PLAN_UPGRADE_KEY, approvalTitle, isGuardianOf, isParentApprovalModule } from "@/lib/approval";
+import { activateSubscription } from "@/lib/subscription";
 
 /** تأیید یا رد درخواست کودک توسط والدین؛ نتیجه بلافاصله روی کلید ماژول فرزند اعمال می‌شود. */
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -20,7 +21,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   const approval = await db.approvalRequest.findUnique({
     where: { id },
-    select: { id: true, childId: true, moduleKey: true, status: true, child: { select: { name: true } } },
+    select: { id: true, childId: true, moduleKey: true, note: true, status: true, child: { select: { name: true } } },
   });
   if (!approval) return jsonError("درخواست پیدا نشد.", 404);
   if (!isParentApprovalModule(approval.moduleKey)) return jsonError("این ماژول با تأیید والدین تغییر نمی‌کند.", 400);
@@ -30,6 +31,47 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
   if (approval.status !== "PENDING") {
     return jsonError("این درخواست قبلاً پاسخ داده شده است.", 409);
+  }
+
+  // درخواست ارتقای پلن: تأیید والدین همان لحظه پلن فرزند را فعال می‌کند (پرداخت نمایشی).
+  if (approval.moduleKey === PLAN_UPGRADE_KEY) {
+    const requestedPlan = (approval.note ?? "") as PlanTier;
+    if (approve && !PLANS[requestedPlan]) return jsonError("پلن درخواستی معتبر نیست.", 400);
+
+    const updated = await db.approvalRequest.update({
+      where: { id },
+      data: {
+        status: approve ? "APPROVED" : "DENIED",
+        respondedAt: new Date(),
+        guardianId: user.role === "ADMIN" ? undefined : user.id,
+      },
+      select: { id: true, status: true },
+    });
+
+    if (approve) {
+      await activateSubscription(approval.childId, requestedPlan, { actorId: user.id });
+      await notify({
+        userId: approval.childId,
+        title: "پلنت ارتقا پیدا کرد 🎉",
+        body: `والدینت درخواستت را تأیید کردند؛ پلن «${PLANS[requestedPlan].title}» برایت فعال شد.`,
+        href: "/dashboard/products/new",
+      });
+    } else {
+      await notify({
+        userId: approval.childId,
+        title: "درخواست ارتقای پلن تأیید نشد",
+        body: "می‌توانی با والدینت صحبت کنی و بعداً دوباره درخواست بدهی.",
+        href: "/dashboard/subscription",
+      });
+    }
+    await logAudit({
+      actorId: user.id,
+      action: approve ? "plan.upgrade.approve" : "plan.upgrade.deny",
+      entity: "ApprovalRequest",
+      entityId: updated.id,
+      detail: `${approvalTitle(approval.moduleKey)} · ${approval.child.name} · ${requestedPlan}`,
+    });
+    return Response.json({ ok: true, status: updated.status, plan: approve ? requestedPlan : null, planUpgrade: true });
   }
 
   await setUserModule(approval.childId, approval.moduleKey, approve);

@@ -21,6 +21,8 @@ enum ProductType {
 
 enum ProductStatus {
   DRAFT
+  /** منتظر تأیید والدین برای محصولات کودکان زیر ۱۳ سال. */
+  AWAITING_PARENT
   PENDING
   APPROVED
   REJECTED
@@ -86,11 +88,14 @@ model User {
   parentId     String?
   parent       User?     @relation("ParentChildren", fields: [parentId], references: [id], onDelete: SetNull)
   children     User[]    @relation("ParentChildren")
+  /** پروفایل کودک ساخته‌شده و اداره‌شده توسط والدین؛ کودک هیچ‌وقت خودش وارد نمی‌شود. */
+  managedByGuardian Boolean @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
   consent         Consent?
   products        Product[]
+  submittedProducts Product[]       @relation("SubmittedProducts")
   modulePrefs     UserModulePreference[]
   cartItems       CartItem[]
   orders          Order[]            @relation("BuyerOrders")
@@ -159,6 +164,12 @@ model Product {
   featured        Boolean       @default(false)
   views           Int           @default(0)
   rejectionReason String?
+  /** محصول به‌جای کودک و با حساب والدین ثبت شده است. */
+  viaGuardian     Boolean       @default(false)
+  submittedById   String?
+  submittedBy     User?         @relation("SubmittedProducts", fields: [submittedById], references: [id], onDelete: SetNull)
+  /** زمان تأیید والدین؛ برای نمایش تگ «تأیید والدین» در صف بازبینی ادمین. */
+  parentApprovedAt DateTime?
   categoryId      String
   category        Category      @relation(fields: [categoryId], references: [id])
   sellerId        String
@@ -173,6 +184,7 @@ model Product {
 
   @@index([status, createdAt])
   @@index([categoryId])
+  @@index([submittedById])
 }
 
 model Message {

@@ -28,8 +28,17 @@ export async function guardiansOf(userId: string): Promise<ContactPerson[]> {
   const people: ContactPerson[] = [];
   const parent = consent?.child.parent;
   if (parent) people.push({ name: parent.name, email: parent.email, phone: parent.phone });
-  if (consent?.parentEmail && !people.some((person) => person.email.toLowerCase() === consent.parentEmail.toLowerCase())) {
-    people.push({ name: consent.parentName || "والد یا سرپرست", email: consent.parentEmail, phone: consent.parentPhone });
+  const consentEmail = consent?.parentEmail?.toLowerCase() ?? "";
+  const alreadyListed = consentEmail
+    ? people.some((person) => person.email.toLowerCase() === consentEmail)
+    : false;
+  // ایمیل والدین اختیاری است؛ اگر ایمیل نباشد، همان موبایل والدین راه تماس می‌شود.
+  if (consent && (consent.parentEmail || consent.parentPhone) && !alreadyListed) {
+    people.push({
+      name: consent.parentName || "والد یا سرپرست",
+      email: consent.parentEmail,
+      phone: consent.parentPhone,
+    });
   }
   return people;
 }
@@ -49,7 +58,7 @@ export async function senderContactInfo(user: {
   if (isMinor(user.birthDate)) {
     const guardians = await guardiansOf(user.id);
     return {
-      email: guardians[0]?.email ?? null,
+      email: guardians[0]?.email || null,
       phone: guardians[0]?.phone ?? null,
       guardians,
     };
@@ -97,7 +106,8 @@ export function contactChannelLabel(channel: string): string {
 export function guardianHint(guardians: ContactPerson[]): string {
   if (guardians.length === 0) return "";
   const first = guardians[0];
-  return `نسخهٔ این پیام برای ${first.name} (${maskEmail(first.email)}) ارسال می‌شود`;
+  const reach = first.email ? maskEmail(first.email) : first.phone ?? "راه تماس ثبت‌شده";
+  return `نسخهٔ این پیام برای ${first.name} (${reach}) ارسال می‌شود`;
 }
 
 export function quotaHint(count: number): string {

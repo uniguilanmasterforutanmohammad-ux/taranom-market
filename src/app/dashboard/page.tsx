@@ -4,6 +4,7 @@ import {
   BadgeCheck,
   Bell,
   ChartNoAxesCombined,
+  Crown,
   Eye,
   Package,
   PackagePlus,
@@ -15,7 +16,7 @@ import { requireUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getEnabledModuleKeys, getQuota, consentBlocked } from "@/lib/module-service";
 import { PLANS } from "@/lib/modules";
-import { PRODUCT_STATUS_LABEL, faDateLabel, faNum, toman } from "@/lib/format";
+import { PRODUCT_STATUS_LABEL, faDateLabel, faNum, productStatusTone, toman } from "@/lib/format";
 import { Alert, Badge, EmptyState, ProgressBar, StatCard } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -43,16 +44,18 @@ export default async function DashboardPage() {
   const earning = Math.round(revenue * 0.93);
   const plan = PLANS[user.plan];
   const blocked = consentBlocked(user);
+  const canUpload = enabled.has("productUpload") && quota.remaining > 0;
 
   return (
     <div className="space-y-5">
       {blocked ? (
         <Alert
-          tone="berry"
-          title="تأیید والدین هنوز کامل نشده است"
+          tone="sky"
+          title="رضایت والدین هنوز تأیید نشده است"
           action={<Link href="/parent" className="kid-btn kid-btn-ghost !py-1.5 text-[11px]">پنل والدین</Link>}
         >
-          می‌توانی بازارچه را ببینی، اما تا تأیید والدین امکان ثبت محصول نداری. کد رهگیری درخواست برای والدین ارسال شده است.
+          می‌توانی محصول ثبت کنی، اما محصولت اول برای تأیید والدین می‌رود و بعد برای بازبینی ادمین؛ تا آن زمان در ویترین
+          دیده نمی‌شود. درخواست رضایت برای والدینت فرستاده شده است.
         </Alert>
       ) : null}
 
@@ -97,7 +100,17 @@ export default async function DashboardPage() {
                 emoji="🧺"
                 title="هنوز محصولی ثبت نکرده‌ای"
                 body="اولین ساخته‌ات را ثبت کن تا بعد از تأیید در ویترین دیده شود."
-                action={enabled.has("productUpload") ? <Link href="/dashboard/products/new" className="kid-btn kid-btn-primary text-xs"><Plus size={14} /> ثبت محصول</Link> : undefined}
+                action={
+                  enabled.has("productUpload") ? (
+                    <Link
+                      href={canUpload ? "/dashboard/products/new" : "/dashboard/subscription"}
+                      className="kid-btn kid-btn-primary text-xs"
+                    >
+                      {canUpload ? <Plus size={14} /> : <Crown size={14} />}
+                      {canUpload ? "ثبت محصول" : "ارتقای پلن"}
+                    </Link>
+                  ) : undefined
+                }
               />
             ) : (
               products.map((product) => (
@@ -107,7 +120,7 @@ export default async function DashboardPage() {
                     <p className="truncate text-xs font-black text-forest">{product.title}</p>
                     <p className="mt-0.5 text-[10px] text-slate-400">{faDateLabel(product.createdAt)} · {faNum(product.views)} بازدید</p>
                   </div>
-                  <Badge tone={product.status === "APPROVED" ? "mint" : product.status === "PENDING" ? "sun" : product.status === "REJECTED" ? "berry" : "slate"}>
+                  <Badge tone={productStatusTone(product.status)}>
                     {PRODUCT_STATUS_LABEL[product.status]}
                   </Badge>
                 </Link>
@@ -120,9 +133,12 @@ export default async function DashboardPage() {
           <section className="kid-card p-5">
             <h2 className="text-sm font-black text-forest">میان‌برهای سریع</h2>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Link href={enabled.has("productUpload") ? "/dashboard/products/new" : "/dashboard/modules"} className="rounded-2xl border-2 border-emerald-900/10 bg-white p-3 text-center hover:bg-emerald-50">
+              <Link
+                href={enabled.has("productUpload") ? (canUpload ? "/dashboard/products/new" : "/dashboard/subscription") : "/dashboard/modules"}
+                className="rounded-2xl border-2 border-emerald-900/10 bg-white p-3 text-center hover:bg-emerald-50"
+              >
                 <PackagePlus size={20} className="mx-auto text-emerald-600" />
-                <p className="mt-1 text-[11px] font-black text-forest">ثبت محصول</p>
+                <p className="mt-1 text-[11px] font-black text-forest">{canUpload ? "ثبت محصول" : "ارتقای پلن"}</p>
               </Link>
               <Link href="/explore" className="rounded-2xl border-2 border-emerald-900/10 bg-white p-3 text-center hover:bg-emerald-50">
                 <Eye size={20} className="mx-auto text-sky-600" />

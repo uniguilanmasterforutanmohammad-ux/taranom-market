@@ -14,7 +14,8 @@ export async function POST(request: Request) {
   if (!email || !password) return jsonError("ایمیل و رمز عبور را وارد کن.");
 
   const user = await db.user.findUnique({ where: { email } });
-  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+  // پروفایل‌های تحت مدیریت والدین رمز قابل‌استفاده ندارند و ورودشان مسدود است.
+  if (!user || user.managedByGuardian || !(await verifyPassword(password, user.passwordHash))) {
     return jsonError("ایمیل یا رمز عبور درست نیست.", 401);
   }
 

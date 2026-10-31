@@ -22,6 +22,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [parentName, setParentName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  const [phone, setPhone] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -41,7 +42,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       body: JSON.stringify(
         mode === "login"
           ? { email, password }
-          : { name, email, password, role, birthDate, parentName, parentEmail, parentPhone },
+          : { name, email, password, role, birthDate, parentName, parentEmail, parentPhone, phone },
       ),
     });
     const data = await response.json().catch(() => ({}));
@@ -135,27 +136,42 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               <p className="text-[11px] font-black text-amber-900">🔒 چون زیر ۱۳ سال هستی، تأیید والدین لازم است.</p>
               <input value={parentName} onChange={(event) => setParentName(event.target.value)} className="kid-field !bg-white" placeholder="نام والد یا سرپرست" required />
               <input
+                dir="ltr"
+                value={parentPhone}
+                onChange={(event) => setParentPhone(event.target.value)}
+                className="kid-field !bg-white text-left"
+                placeholder="موبایل والدین — ۰۹۱۲۳۴۵۶۷۸۹"
+                required
+                pattern="[0-9۰-۹\-+ ]{10,15}"
+              />
+              <input
                 type="email"
                 dir="ltr"
                 value={parentEmail}
                 onChange={(event) => setParentEmail(event.target.value)}
                 className="kid-field !bg-white text-left"
-                placeholder="parent@example.com"
-                required
-              />
-              <input
-                dir="ltr"
-                value={parentPhone}
-                onChange={(event) => setParentPhone(event.target.value)}
-                className="kid-field !bg-white text-left"
-                placeholder="موبایل والدین — ۰۹۱۲… (اختیاری)"
+                placeholder="ایمیل والدین (اختیاری)"
               />
               <p className="text-[10px] leading-4 text-amber-800/80">
-                حساب فعال می‌شود، اما تا تأیید والدین امکان ثبت محصول نداری. اگر والدین حساب دارند، با همان ایمیل وارد شوند.
+                شمارهٔ موبایل والدین الزامی است و ایمیل اختیاری؛ با همان شماره یا ایمیل، حسابت خودکار به پنل والدین وصل
+                می‌شود. می‌توانی محصول ثبت کنی، اما محصولت اول منتظر <strong>تأیید والدین</strong> می‌ماند.
               </p>
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {mode === "register" && role === "PARENT" ? (
+        <label>
+          <span className="kid-label">موبایل شما (اختیاری — برای وصل‌شدن خودکار به حساب فرزندتان)</span>
+          <input
+            dir="ltr"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            className="kid-field text-left"
+            placeholder="۰۹۱۲۳۴۵۶۷۸۹"
+          />
+        </label>
       ) : null}
 
       {error ? <p className="rounded-xl bg-pink-50 p-2.5 text-xs font-bold text-pink-700">{error}</p> : null}

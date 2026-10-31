@@ -27,10 +27,23 @@ export function ProductForm({
   categories,
   product,
   quotaRemaining,
+  ownerId,
+  ownerName,
+  redirectTo,
+  parentFirst = false,
+  reviewMode = false,
 }: {
   categories: Category[];
   product?: ProductInput;
   quotaRemaining: number;
+  /** اگر والد برای فرزندش ثبت کند، شناسهٔ حساب فرزند. */
+  ownerId?: string;
+  ownerName?: string;
+  redirectTo?: string;
+  /** صاحب محصول کودک زیر ۱۳ سال است؛ اول تأیید والدین لازم است. */
+  parentFirst?: boolean;
+  /** حالت بازبینی ادمین: امکان ویرایش همراه با تأیید یا رد. */
+  reviewMode?: boolean;
 }) {
   const router = useRouter();
   const [type, setType] = useState(product?.type ?? "PHYSICAL");
@@ -42,44 +55,102 @@ export function ProductForm({
   const [stock, setStock] = useState(product?.stock != null ? String(product.stock) : "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [reason, setReason] = useState("");
+
+  function payload() {
+    return {
+      title,
+      description,
+      type,
+      price: Number(price),
+      categoryId,
+      sellerId: ownerId,
+      tags: tags.split(/[،,]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 6),
+      stock: type === "PHYSICAL" && stock !== "" ? Number(stock) : null,
+    };
+  }
+
+  function validate(): boolean {
+    if (title.trim().length < 3) {
+      setError("عنوان را کامل‌تر بنویس.");
+      return false;
+    }
+    if (description.trim().length < 15) {
+      setError("توضیحات باید حداقل ۱۵ حرف باشد.");
+      return false;
+    }
+    if (!categoryId) {
+      setError("یک دسته‌بندی انتخاب کن.");
+      return false;
+    }
+    if (Number(price) < 0 || price === "") {
+      setError("قیمت را درست وارد کن.");
+      return false;
+    }
+    setError("");
+    return true;
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setError("");
-    if (title.trim().length < 3) return setError("عنوان را کامل‌تر بنویس.");
-    if (description.trim().length < 15) return setError("توضیحات باید حداقل ۱۵ حرف باشد.");
-    if (!categoryId) return setError("یک دسته‌بندی انتخاب کن.");
-    if (Number(price) < 0 || price === "") return setError("قیمت را درست وارد کن.");
+    void send("save");
+  }
 
+  async function send(action: "save" | "approve" | "reject") {
+    if (!validate()) return;
+    if (reviewMode && action === "reject" && reason.trim().length < 5) {
+      setError("دلیل رد را بنویس (حداقل ۵ حرف).");
+      return;
+    }
     setLoading(true);
-    const response = await fetch(product?.id ? `/api/products/${product.id}` : "/api/products", {
-      method: product?.id ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title,
-        description,
-        type,
-        price: Number(price),
-        categoryId,
-        tags: tags.split(/[،,]/).map((tag) => tag.trim()).filter(Boolean).slice(0, 6),
-        stock: type === "PHYSICAL" && stock !== "" ? Number(stock) : null,
-      }),
-    });
+    const response = reviewMode
+      ? await fetch("/api/admin/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productId: product?.id, action, reason, edits: payload() }),
+        })
+      : await fetch(product?.id ? `/api/products/${product.id}` : "/api/products", {
+          method: product?.id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload()),
+        });
     const data = await response.json().catch(() => ({}));
     setLoading(false);
     if (!response.ok) {
       setError(data.error ?? "ثبت محصول ناموفق بود.");
       return;
     }
-    router.push("/dashboard/products");
+    router.push(reviewMode ? "/admin/moderation" : redirectTo ?? "/dashboard/products");
     router.refresh();
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
+      {ownerName ? (
+        <div className="flex items-start gap-2 rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 text-[11px] leading-5 text-sky-950">
+          <span className="text-base">👨‍👩‍👧</span>
+          <span>
+            این محصول با حساب خودت و <strong>به نام «{ownerName}»</strong> ثبت می‌شود؛ فرزندت نیازی به ورود به سایت
+            ندارد. پس از تأیید ادمین، محصول زیر نام {ownerName} در ویترین منتشر می‌شود.
+          </span>
+        </div>
+      ) : null}
+
+      {parentFirst && !reviewMode ? (
+        <div className="rounded-2xl border-2 border-sky-200 bg-sky-50 p-3 text-[11px] leading-5 text-sky-950">
+          👨‍👩‍👧 چون زیر ۱۳ سال هستی، محصولت اول برای <strong>تأیید والدین</strong> می‌رود و بعد از تأیید آن‌ها برای بازبینی
+          ادمین ارسال می‌شود. تا آن زمان در ویترین دیده نمی‌شود.
+        </div>
+      ) : null}
+
       {!product?.id ? (
         <div className="rounded-2xl bg-emerald-50 p-3 text-[11px] font-bold text-emerald-800">
-          ✨ {quotaRemaining > 0 ? `${quotaRemaining} جای خالی در پلن فعلی داری.` : "سقف پلن پر است؛ برای ثبت باید ارتقا بدهی."}
+          ✨{" "}
+          {quotaRemaining > 0
+            ? ownerName
+              ? `${quotaRemaining} جای خالی در پلن «${ownerName}» باقی است.`
+              : `${quotaRemaining} جای خالی در پلن فعلی داری.`
+            : `سقف پلن ${ownerName ? `«${ownerName}»` : "فعلی"} پر است؛ برای ثبت باید ارتقا بدهی.`}
         </div>
       ) : null}
 
@@ -151,16 +222,56 @@ export function ProductForm({
 
       <div className="kid-card flex flex-wrap items-center gap-3 bg-amber-50/60 p-4 text-[11px] text-amber-900">
         <Sparkles size={16} className="text-amber-600" />
-        محصول پس از ثبت با وضعیت «در انتظار تأیید» ذخیره می‌شود و پس از بازبینی ادمین در ویترین منتشر می‌شود.
+        {reviewMode
+          ? "می‌توانی متن، قیمت و دسته‌بندی را اصلاح کنی و همان‌جا تأیید یا رد کنی؛ نتیجه فوراً برای فروشنده اعلان می‌شود."
+          : parentFirst
+            ? "محصول ابتدا با وضعیت «در انتظار تأیید والدین» ذخیره می‌شود، بعد به صف بازبینی ادمین می‌رود و در پایان در ویترین منتشر می‌شود."
+            : "محصول پس از ثبت با وضعیت «در انتظار تأیید» ذخیره می‌شود و پس از بازبینی ادمین در ویترین منتشر می‌شود."}
       </div>
+
+      {reviewMode ? (
+        <div className="kid-card space-y-2 p-4">
+          <p className="text-[11px] font-black text-forest">🛠️ ویرایش ادمین همراه با تصمیم</p>
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="دلیل رد (فقط برای رد لازم است)"
+            className="kid-field"
+          />
+        </div>
+      ) : null}
 
       {error ? <p className="rounded-xl bg-pink-50 p-3 text-xs font-bold text-pink-700">{error}</p> : null}
 
-      <div className="flex items-center gap-2">
-        <button type="submit" disabled={loading || (!product?.id && quotaRemaining <= 0)} className="kid-btn kid-btn-primary text-sm disabled:opacity-50">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          disabled={loading || (!product?.id && quotaRemaining <= 0)}
+          className={`kid-btn text-sm disabled:opacity-50 ${reviewMode ? "kid-btn-ghost" : "kid-btn-primary"}`}
+        >
           {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          {product?.id ? "ذخیره و ارسال برای بازبینی" : "ثبت محصول"}
+          {reviewMode ? "ذخیرهٔ ویرایش" : product?.id ? "ذخیره و ارسال برای بازبینی" : "ثبت محصول"}
         </button>
+        {reviewMode ? (
+          <>
+            <button
+              type="button"
+              onClick={() => send("approve")}
+              disabled={loading}
+              className="kid-btn kid-btn-primary text-sm disabled:opacity-50"
+            >
+              ✅ ذخیره و تأیید
+            </button>
+            <button
+              type="button"
+              onClick={() => send("reject")}
+              disabled={loading}
+              className="kid-btn text-sm !bg-pink-600 !text-white disabled:opacity-50"
+            >
+              ⛔ ذخیره و رد
+            </button>
+          </>
+        ) : null}
         <button type="button" onClick={() => router.back()} className="kid-btn kid-btn-ghost text-sm">انصراف</button>
       </div>
     </form>
